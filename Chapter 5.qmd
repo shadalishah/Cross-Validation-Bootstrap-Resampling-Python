@@ -1,0 +1,425 @@
+---
+title: "Reseampling Methods"
+subtitle: "Chapter 5: ISLR2 Exercise Solutions"
+author: "Shad Ali Shah"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    number-depth: 3
+    code-fold: true
+    code-tools: true
+    code-summary: "Show code"
+    theme: cosmo
+    colorlinks: true
+    link-citations: true
+    df-print: kable
+    fig-cap-location: bottom
+    tbl-cap-location: top
+    crossref:
+      fig-title: "Figure"
+      tbl-title: "Table"
+      fig-prefix: "Fig."
+      tbl-prefix: "Table"
+execute:
+  echo: true
+  warning: false
+  message: false
+  error: true
+  cache: false
+  keep-going: true
+  fig-width: 6.5
+  fig-height: 4
+jupyter: python3
+---
+
+# Chapter 5
+
+## Exercise 5
+
+### (a)
+
+```{python}
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+from ISLP import load_data
+from ISLP.models import (ModelSpec as MS,
+                         summarize,
+                         poly)
+from sklearn.model_selection import train_test_split
+from functools import partial
+from sklearn.model_selection import \
+     (cross_validate,
+      KFold,
+      ShuffleSplit)
+from sklearn.base import clone
+from ISLP.models import sklearn_sm
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, accuracy_score
+import statsmodels.formula.api as smf 
+```
+
+```{python}
+np.random.seed(1)
+Default=load_data("Default")
+```
+
+```{python}
+Default.default
+```
+
+```{python}
+allvars = Default.columns.drop(['default','student'])
+design=MS(allvars)
+X=design.fit_transform(Default)
+y=Default.default=='Yes'
+glm=sm.GLM(y,X,family=sm.families.Binomial())
+res=glm.fit()
+res.summary()
+```
+
+### (b)
+
+#### (i) 
+
+```{python}
+Default_train, Default_valid = train_test_split(Default, test_size=5000, random_state=0)
+Default_valid
+```
+
+#### (ii) 
+
+```{python}
+allvars_train = Default_train.columns.drop(['default','student'])
+design_train=MS(allvars_train)
+X_train=design_train.fit_transform(Default_train)
+y_train=Default_train.default=='Yes'
+glm=sm.GLM(y_train,X_train,family=sm.families.Binomial())
+res=glm.fit()
+res.summary()
+```
+
+#### (iii)
+
+```{python}
+X_valid=design_train.transform(Default_valid)
+valid_pred = res.predict(X_valid)
+labels=np.array(['No']*5000)
+labels[valid_pred>0.5]='Yes'
+```
+
+#### (iv)
+
+```{python}
+y_valid = Default_valid['default']
+1-accuracy_score(y_valid, labels)
+```
+
+## Exercise 6
+
+### (a)
+
+```{python}
+#We should add a column of dummy variables related to 'default' because without this manipulation
+#GLM used hereafter won't succed in converting categorical variables into dummy ones.
+Default['default_yes'] = (Default['default'] == 'Yes').astype('int')
+```
+
+```{python}
+allvars=Default.columns.drop(['default','student','default_yes'])
+design=MS(allvars)
+X=design.fit_transform(Default)
+y=Default.default=='Yes'
+model=sm.GLM(y,X,family=sm.families.Binomial())
+result=model.fit()
+summarize(result)
+```
+
+```{python}
+result.bse#Generating the standard errors ofthe coefficients
+```
+
+### (b)
+
+```{python}
+def boot_SE(func,D,n=None,B=1000,seed=0):
+    rng = np.random.default_rng(seed)
+    first_, second_ = 0, 0
+    n = n or D.shape[0]
+    for _ in range(B):
+        idx = rng.choice(D.index,n,replace=True)
+        value = func(D,idx)
+        first_ += value
+        second_ += value**2
+    return np.sqrt(second_ / B - (first_ / B)**2)
+def boot_fn(model_matrix,response,D,idx):
+    D_=D.loc[idx]
+    y=D_[response]
+    X=clone(model_matrix).fit_transform(D_)
+    model=sm.GLM(y,X,family=sm.families.Binomial())
+    result=model.fit()
+    coef_income=result.params[1]
+    coef_balance=result.params[2]
+    return result.params
+```
+
+### (c)
+
+```{python}
+hp_func=partial(boot_fn,MS(['income','balance']),'default_yes')
+#Below is a test for hp_func instantiation
+rng = np.random.default_rng(0)
+np.array([hp_func(Default,
+          rng.choice(392,
+                     392,
+                     replace=True)) for _ in range(10)])
+```
+
+```{python}
+boot_SE(hp_func,Default,B=1000,seed=10)
+```
+
+### (d)
+
+Clearly we obtain approximate values by both methods.
+
+## Exercise 7
+
+### (a)
+
+```{python}
+Weekly=load_data('Weekly')
+```
+
+```{python}
+Weekly.head()
+```
+
+```{python}
+Weekly.info()
+```
+
+```{python}
+#Fitting a logistic regression of Lag1 and Lag2 as exog and Direction as endog
+allvars=Weekly.columns.drop(['Direction','Year','Volume','Today','Lag3','Lag4','Lag5'])
+design=MS(allvars)
+X=design.fit_transform(Weekly)
+y=Weekly.Direction=='Up'
+model=sm.GLM(y,X,family=sm.families.Binomial())
+result=model.fit()
+summarize(result)
+```
+
+### (b)
+
+```{python}
+model_1=sm.GLM(y.iloc[1:],X.iloc[1:],family=sm.families.Binomial())
+result_1=model_1.fit()
+summarize(result_1)
+```
+
+### (c)
+
+```{python}
+probs = result_1.predict([X.iloc[0]])
+labels = np.array(['Down']*1)
+labels[probs>0.5] = "Up"
+labels
+```
+
+### (d)
+
+```{python}
+n=len(Weekly)
+errors=np.zeros(n)
+for i in range(n):
+    x_train=X.drop([i])
+    y_train=y.drop([i])
+    model_i=sm.GLM(y_train,x_train,family=sm.families.Binomial()).fit()
+    x_test=X.iloc[i]
+    pred=model_i.predict([x_test])
+    labels = np.array(['Down']*1)
+    labels[pred>0.5] = "Up"
+    if labels[0]!=Weekly.Direction[i]:
+        errors[i]=1
+```
+
+### (e)
+
+```{python}
+errors.mean()
+```
+
+The test error estimate is 45%. The logistic regression model performs poorly on average (It is slightly better than random guessing). This must be a consequence of the model not enough flexible relatively to the Bayes decision boundary.  
+A possible remedy is to raise the power degrees of the predictors to increase flexibility.
+
+## Exercise 8
+
+### (a)
+
+```{python}
+rng=np.random.default_rng(1)
+x=rng.normal(size=100)
+y=x-2*x**2+rng.normal(size=100)
+```
+
+n is the number of observations and p is the number of predictors. In this case there are two predictors which are $x$ and $x^2$.  
+Hence, n=100 and p=2.
+
+### (b)
+
+```{python}
+plt.scatter(x,y);
+```
+
+The scatter shows a quadratic plot. 
+The two points in the bottom left corner could be outsiders.
+
+### (c)
+
+```{python}
+np.random.seed(7)
+```
+
+```{python}
+n=len(x)
+x.reshape(1,-1)
+y.reshape(1,-1)
+cv_error = np.zeros(4)
+M = sklearn_sm(sm.OLS)
+for i, d in enumerate(range(1,5)):
+    X = np.power.outer(x, np.arange(d+1))
+    M_CV = cross_validate(M,X,y,cv=n)
+    cv_error[i] = np.mean(M_CV['test_score'])
+cv_error
+```
+
+The model reported in ii returns the smallest CV error.
+
+### (d)
+
+```{python}
+np.random.seed(9)
+```
+
+```{python}
+cv_error2 = np.zeros(4)
+x.reshape(1,-1)
+y.reshape(1,-1)
+M = sklearn_sm(sm.OLS)
+for i, d in enumerate(range(1,5)):
+    X = np.power.outer(x, np.arange(d+1))
+    M_CV = cross_validate(M,X,y,cv=n)
+    cv_error2[i] = np.mean(M_CV['test_score'])
+cv_error2
+```
+
+The results are exactly the same because we only remove one observation from the training set. Thus, there is no random effect resulting from the observations used for the test set. LOOCV will always be the same, no matter the random seed is.
+
+### (e)
+
+The smallest error is found for the quadratic model ii. This result was expected since that model has the same form of the true one defined in question a.
+
+### (f)
+
+```{python}
+df=pd.DataFrame({'x':x,'y':y})
+X= MS([poly('x', degree=4)],intercept=False).fit_transform(df)
+model=sm.OLS(y,X)
+result=model.fit()
+summarize(result)
+```
+
+As it was expected, the pvalues show that the only significant coefficients are those related to $x$ and $x^2$.
+
+## Exercise 9
+
+```{python}
+Boston=load_data('Boston')
+```
+
+### (a)
+
+```{python}
+mu_hat=Boston['medv'].mean()
+mu_hat
+```
+
+The population mean estimate for medv is 22.53.
+
+### (b)
+
+```{python}
+SE_mu_hat=Boston['medv'].std()/(Boston.shape[0])**0.5
+SE_mu_hat
+```
+
+The obtained estimation of the standard deviation is 0.41.
+
+```{python}
+Boston['medv'].index
+```
+
+### (c)
+
+```{python}
+means=[]
+for _ in range(1000):
+    means.append(Boston['medv'].sample(n=Boston.shape[0],replace=True,random_state=None).mean())
+boot_std=np.std(means)
+boot_std
+```
+
+The answer is approximately the same as the one obtained in (b).
+
+### (d)
+
+```{python}
+print('The 95% confidence interval for the mean of medv is', mu_hat-2*boot_std,mu_hat+2*boot_std)
+```
+
+### (e)
+
+```{python}
+mu_med=Boston['medv'].median()
+mu_med
+```
+
+### (f)
+
+```{python}
+medians=[]
+for _ in range(10000):
+    medians.append(Boston['medv'].sample(n=Boston.shape[0],replace=True).median())
+boot_med_std=np.std(medians)
+boot_med_std
+```
+
+The standard error of the median is less than the standard error of the mean. This a sign of non normality of the distribution of feature 'medv'.
+
+```{python}
+mu_01=np.percentile(Boston['medv'],10)
+mu_01
+```
+
+### (g)
+
+```{python}
+percentiles=[]
+for _ in range(5000):
+    sample=Boston['medv'].sample(n=Boston.shape[0],replace=True)
+    percentiles.append(np.percentile(sample,10))
+boot_mu01_std=np.std(percentiles)
+boot_mu01_std
+```
+
+The standard error is small relatively to the tenth percentile value.
+
+```{python}
+
+```
